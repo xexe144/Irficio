@@ -45,7 +45,6 @@ async function getOfficialTransfers() {
 
     const data = await res.json();
 
-    // data contains a table with transfer info
     const transfers = data.transfers || [];
 
     const cleaned = transfers.map(t => ({
@@ -57,9 +56,6 @@ async function getOfficialTransfers() {
     return cleaned.slice(0, 10);
 }
 
-
-    return results.slice(0, 10);
-}
 
 // ------------- SIMPLE EMBED -------------
 function makeEmbed(transfers) {
@@ -128,4 +124,5 @@ client.on("interactionCreate", async interaction => {
 
 // ------------- LOGIN -------------
 client.login(TOKEN);
+
 
