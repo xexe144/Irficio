@@ -34,39 +34,51 @@ async function registerCommands() {
 
 // ------------- FETCH OFFICIAL TRANSFERS -------------
 async function getOfficialTransfers() {
-    const url = "https://www.transfermarkt.com/transfers/neuestetransfers/statistik?ajax=1&altersklasse=&ausrichtung=&land_id=&spielerposition_id=&filter=&transferfenster=sommer&jahrgang=&outgoing=&verein_id=&cont=&yt0=Show";
+    const url = "https://rsshub.app/twitter/user/FabrizioRomano";
 
     const res = await fetch(url, {
         headers: {
-            "User-Agent": "Mozilla/5.0",
-            "Accept": "application/json"
+            "User-Agent": "Mozilla/5.0"
         }
     });
 
     const data = await res.json();
 
-    const transfers = data.transfers || [];
+    const tweets = data.items || [];
 
-    const cleaned = transfers.map(t => ({
-        player: t.spielerName || "Unknown",
-        to: t.ziel_name || "Unknown Club",
-        fee: t.abloese || "N/A"
+    // Filter ONLY official transfers
+    const officialTweets = tweets.filter(t =>
+        t.title.includes("Here we go") ||
+        t.title.includes("Official") ||
+        t.title.includes("confirmed") ||
+        t.title.includes("Completed") ||
+        t.title.includes("Deal") ||
+        t.title.includes("joins") ||
+        t.title.includes("signs")
+    );
+
+    // Clean text
+    const cleaned = officialTweets.slice(0, 10).map(t => ({
+        player: t.title.replace(/<[^>]+>/g, "").trim(),
+        to: "",
+        fee: ""
     }));
 
-    return cleaned.slice(0, 10);
+    return cleaned;
 }
+
 
 
 // ------------- SIMPLE EMBED -------------
 function makeEmbed(transfers) {
     const embed = new EmbedBuilder()
         .setColor("#00FFFF")
-        .setTitle("📢 Last transfer news:")
+        .setTitle("📢 HERE WE GO!:")
         .setTimestamp();
 
     if (transfers.length === 0) {
         embed.addFields({
-            name: "No official transfers found",
+            name: "No official transfers yet",
             value: "Try again later.",
             inline: false
         });
@@ -75,14 +87,15 @@ function makeEmbed(transfers) {
 
     transfers.forEach(t => {
         embed.addFields({
-            name: `${t.player} → ${t.to}`,
-            value: `💰 ${t.fee}`,
+            name: " ",
+            value: `• ${t.player}`,
             inline: false
         });
     });
 
     return embed;
 }
+
 
 
 // ------------- AUTO CHECK EVERY 10 MIN -------------
@@ -124,5 +137,6 @@ client.on("interactionCreate", async interaction => {
 
 // ------------- LOGIN -------------
 client.login(TOKEN);
+
 
 
