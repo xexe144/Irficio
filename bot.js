@@ -34,22 +34,29 @@ async function registerCommands() {
 
 // ------------- FETCH OFFICIAL TRANSFERS -------------
 async function getOfficialTransfers() {
-    const url = "https://www.transfermarkt.com/transfers/neuestetransfers/statistik?ajax=1";
-    const res = await fetch(url);
-    const html = await res.text();
+    const url = "https://www.transfermarkt.com/transfers/neuestetransfers/statistik?ajax=1&altersklasse=&ausrichtung=&land_id=&spielerposition_id=&filter=&transferfenster=sommer&jahrgang=&outgoing=&verein_id=&cont=&yt0=Show";
 
-    const regex = /"spielername":"(.*?)","transferziel":"(.*?)","ablöse":"(.*?)"/g;
+    const res = await fetch(url, {
+        headers: {
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "application/json"
+        }
+    });
 
-    let match;
-    const results = [];
+    const data = await res.json();
 
-    while ((match = regex.exec(html)) !== null) {
-        results.push({
-            player: match[1],
-            to: match[2],
-            fee: match[3].trim()
-        });
-    }
+    // data contains a table with transfer info
+    const transfers = data.transfers || [];
+
+    const cleaned = transfers.map(t => ({
+        player: t.spielerName || "Unknown",
+        to: t.ziel_name || "Unknown Club",
+        fee: t.abloese || "N/A"
+    }));
+
+    return cleaned.slice(0, 10);
+}
+
 
     return results.slice(0, 10);
 }
@@ -61,6 +68,15 @@ function makeEmbed(transfers) {
         .setTitle("📢 Last transfer news:")
         .setTimestamp();
 
+    if (transfers.length === 0) {
+        embed.addFields({
+            name: "No official transfers found",
+            value: "Try again later.",
+            inline: false
+        });
+        return embed;
+    }
+
     transfers.forEach(t => {
         embed.addFields({
             name: `${t.player} → ${t.to}`,
@@ -71,6 +87,7 @@ function makeEmbed(transfers) {
 
     return embed;
 }
+
 
 // ------------- AUTO CHECK EVERY 10 MIN -------------
 async function autoCheck() {
@@ -111,3 +128,4 @@ client.on("interactionCreate", async interaction => {
 
 // ------------- LOGIN -------------
 client.login(TOKEN);
+
