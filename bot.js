@@ -1,257 +1,166 @@
-import express from "express";
-import { Client, GatewayIntentBits, REST, Routes, EmbedBuilder } from "discord.js";
 import fetch from "node-fetch";
 import * as cheerio from "cheerio";
+import {
+  Client,
+  GatewayIntentBits,
+  REST,
+  Routes,
+  EmbedBuilder
+} from "discord.js";
 
-// ------------------------------------------------------
-// EXPRESS SERVER (Render keep-alive)
-// ------------------------------------------------------
-const app = express();
-app.get("/", (req, res) => res.send("Irfizio bot online"));
-app.listen(3000, () => console.log("Web server running on 3000"));
-
-// ------------------------------------------------------
-// ENV VARIABLES
-// ------------------------------------------------------
 const TOKEN = process.env.TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
 const CHANNEL_ID = process.env.CHANNEL_ID;
 
-// ------------------------------------------------------
-// DISCORD CLIENT
-// ------------------------------------------------------
 const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
 });
 
-// ------------------------------------------------------
-// ALL CLUB LISTS
-// ------------------------------------------------------
+// ---------------------------
+//  REGISTER SLASH COMMANDS
+// ---------------------------
 
-// Premier League
-const premierLeague = [
-    "Arsenal","Aston Villa","Bournemouth","Brentford","Brighton",
-    "Chelsea","Crystal Palace","Everton","Fulham","Liverpool",
-    "Luton","Manchester City","Man City","Manchester United","Man United",
-    "Newcastle","Nottingham Forest","Sheffield United","Tottenham","Spurs",
-    "West Ham","Wolves","Wolverhampton"
-];
-
-// La Liga
-const laLiga = [
-    "Alaves","Athletic Club","Atletico Madrid","Atleti","Barcelona","Barça",
-    "Cadiz","Celta Vigo","Getafe","Girona","Granada","Las Palmas",
-    "Mallorca","Osasuna","Rayo Vallecano","Real Betis","Real Madrid",
-    "Real Sociedad","Sevilla","Valencia","Villarreal"
-];
-
-// Ligue 1 (selected only)
-const ligue1 = [
-    "Paris Saint-Germain","PSG","Lyon","Marseille"
-];
-
-// Bundesliga (selected only)
-const bundesliga = [
-    "Bayern Munich","Bayern","Bayer Leverkusen","Leverkusen",
-    "Borussia Dortmund","Dortmund","Eintracht Frankfurt"
-];
-
-// Serie A (selected only)
-const serieA = [
-    "Inter","Internazionale",
-    "Juventus","Juve",
-    "Milan","AC Milan",
-    "Napoli","Roma"
-];
-
-// ALL clubs for /transfers and /rumours
-const allClubs = [
-    ...premierLeague,
-    ...laLiga,
-    ...ligue1,
-    ...bundesliga,
-    ...serieA
-];
-
-// AUTO POST CLUBS (same as above)
-const autoClubs = allClubs;
-
-// ------------------------------------------------------
-// COMMANDS
-// ------------------------------------------------------
 const commands = [
-    { name: "transfers", description: "Official transfers from top leagues" },
-    { name: "rumours", description: "Rumours (text formats only) from GOAL" }
+  {
+    name: "transfers",
+    description: "Show official transfers from top leagues"
+  },
+  {
+    name: "rumours",
+    description: "Show transfer rumours from TeamTalk"
+  }
 ];
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
-// Register commands
-async function registerCommands() {
-    await rest.put(
-        Routes.applicationGuildCommands(client.user?.id, GUILD_ID),
-        { body: commands }
-    );
+async function register() {
+  try {
+    await rest.put(Routes.applicationGuildCommands(client.user.id, GUILD_ID), {
+      body: commands
+    });
     console.log("Slash commands registered.");
+  } catch (e) {
+    console.log("Error registering commands:", e);
+  }
 }
 
-// ------------------------------------------------------
-// LOAD GOAL HTML
-// ------------------------------------------------------
-async function loadGoal() {
-    const res = await fetch("https://www.goal.com/en/transfer-news", {
-        headers: { "User-Agent": "Mozilla/5.0" }
-    });
-    return cheerio.load(await res.text());
-}
+// -------------------------------------------------------
+//   OFFICIAL TRANSFER SCRAPER (GOAL)
+// -------------------------------------------------------
 
-// ------------------------------------------------------
-// GET ALL TEXT HEADLINES (NO VIDEO)
-// ------------------------------------------------------
-function extractTextHeadlines($) {
-    const selectors = [
-        ".type-article .title",
-        ".type-list .title",
-        ".type-story .title",
-        ".type-analysis .title",
-        ".type-gallery .title",
-        ".type-tags .title"
-        // --- type-video intentionally excluded ---
-    ];
+async function scrapeOfficialTransfers() {
+  let url = "https://www.goal.com/en/transfer-news";
+  const html = await (await fetch(url)).text();
+  const $ = cheerio.load(html);
 
-    const results = [];
+  let results = [];
 
-    selectors.forEach(sel => {
-        $(sel).each((i, el) => {
-            const t = $(el).text().trim();
-            if (t) results.push(t);
-        });
-    });
+  $(".type-article").each((i, el) => {
+    const title = $(el).find("h3").text().trim();
+    if (!title) return;
 
-    return results;
-}
-
-// ------------------------------------------------------
-// GET OFFICIAL TRANSFERS
-// ------------------------------------------------------
-async function getOfficialTransfers() {
-    const $ = await loadGoal();
-    const titles = extractTextHeadlines($);
-
-    const officialWords = ["official", "confirmed", "deal", "joins", "signs"];
-
-    return titles
-        .filter(t => officialWords.some(w => t.toLowerCase().includes(w)))
-        .filter(t => allClubs.some(c => t.toLowerCase().includes(c.toLowerCase())))
-        .slice(0, 20)
-        .map(t => ({ text: t }));
-}
-
-// ------------------------------------------------------
-// GET RUMOURS (TEXT FORMATS ONLY)
-// ------------------------------------------------------
-async function getRumours() {
-    const $ = await loadGoal();
-    const titles = extractTextHeadlines($);
-
-    const rumourWords = [
-        "linked","target","interest","interested",
-        "monitoring","eyeing","approach","offer","bid",
-        "could","move"
-    ];
-
-    return titles
-        .filter(t => rumourWords.some(w => t.toLowerCase().includes(w)))
-        .filter(t => allClubs.some(c => t.toLowerCase().includes(c.toLowerCase())))
-        .slice(0, 20)
-        .map(t => ({ text: t }));
-}
-
-// ------------------------------------------------------
-// EMBEDS
-// ------------------------------------------------------
-function embedOfficial(list) {
-    const e = new EmbedBuilder()
-        .setColor("#00FF9D")
-        .setTitle("✅ Official Transfers")
-        .setTimestamp();
-
-    if (list.length === 0)
-        e.addFields({ name: "No official transfers", value: "Try again later." });
-    else
-        list.forEach(t => e.addFields({ name: " ", value: `• ${t.text}` }));
-
-    return e;
-}
-
-function embedRumours(list) {
-    const e = new EmbedBuilder()
-        .setColor("#FFD000")
-        .setTitle("🟡 Transfer Rumours")
-        .setTimestamp();
-
-    if (list.length === 0)
-        e.addFields({ name: "No rumours", value: "Try again later." });
-    else
-        list.forEach(t => e.addFields({ name: " ", value: `• ${t.text}` }));
-
-    return e;
-}
-
-// ------------------------------------------------------
-// AUTO CHECK — ONLY OFFICIAL, ONLY SELECTED CLUBS
-// ------------------------------------------------------
-let lastAuto = [];
-
-async function autoCheck() {
-    try {
-        const $ = await loadGoal();
-        const titles = extractTextHeadlines($);
-
-        const officialWords = ["official", "confirmed", "deal", "joins", "signs"];
-
-        const newResults = titles
-            .filter(t => officialWords.some(w => t.toLowerCase().includes(w)))
-            .filter(t => autoClubs.some(c => t.toLowerCase().includes(c.toLowerCase())))
-            .map(t => ({ text: t }));
-
-        if (JSON.stringify(newResults) !== JSON.stringify(lastAuto)) {
-            const ch = client.channels.cache.get(CHANNEL_ID);
-
-            if (newResults.length > 0 && ch) {
-                ch.send({ embeds: [embedOfficial(newResults)] });
-            }
-
-            lastAuto = newResults;
-        }
-    } catch (err) {
-        console.log("Auto-check error:", err);
+    // включваме само официални
+    if (
+      title.toLowerCase().includes("official") ||
+      title.toLowerCase().includes("confirmed")
+    ) {
+      results.push(title);
     }
+  });
+
+  return results.slice(0, 10);
 }
 
-// ------------------------------------------------------
-// DISCORD EVENTS
-// ------------------------------------------------------
-client.on("ready", async () => {
-    console.log(`Logged in as ${client.user.tag}`);
-    await registerCommands();
+// -------------------------------------------------------
+//   RUMOURS SCRAPER (TEAMTALK — стабилен)
+// -------------------------------------------------------
 
-    autoCheck();
-    setInterval(autoCheck, 10 * 60 * 1000);
+async function scrapeRumours() {
+  const url = "https://www.teamtalk.com/transfer-news";
+  const html = await (await fetch(url)).text();
+  const $ = cheerio.load(html);
+
+  let rumours = [];
+
+  $(".articleCard").each((i, el) => {
+    const title = $(el).find(".articleCard__title").text().trim();
+    if (title) rumours.push(title);
+  });
+
+  return rumours.slice(0, 10);
+}
+
+// -------------------------------------------------------
+//   SLASH COMMANDS HANDLER
+// -------------------------------------------------------
+
+client.on("interactionCreate", async (i) => {
+  if (!i.isChatInputCommand()) return;
+
+  if (i.commandName === "transfers") {
+    await i.deferReply();
+
+    const transfers = await scrapeOfficialTransfers();
+
+    const embed = new EmbedBuilder()
+      .setColor("Green")
+      .setTitle("✅ Official Transfers")
+      .setTimestamp();
+
+    if (transfers.length === 0) {
+      embed.setDescription("No official transfers\nTry again later.");
+    } else {
+      embed.setDescription(transfers.map((t) => `• ${t}`).join("\n"));
+    }
+
+    i.editReply({ embeds: [embed] });
+  }
+
+  if (i.commandName === "rumours") {
+    await i.deferReply();
+
+    const rumours = await scrapeRumours();
+
+    const embed = new EmbedBuilder()
+      .setColor("Yellow")
+      .setTitle("🟡 Transfer Rumours (TeamTalk)")
+      .setTimestamp();
+
+    if (rumours.length === 0) {
+      embed.setDescription("No rumours\nTry again later.");
+    } else {
+      embed.setDescription(rumours.map((r) => `• ${r}`).join("\n"));
+    }
+
+    i.editReply({ embeds: [embed] });
+  }
 });
 
-client.on("interactionCreate", async interaction => {
-    if (!interaction.isChatInputCommand()) return;
+// -------------------------------------------------------
+//   AUTO-CHECK EVERY 10 MINUTES — само официални!
+// -------------------------------------------------------
 
-    if (interaction.commandName === "transfers")
-        return interaction.reply({ embeds: [embedOfficial(await getOfficialTransfers())] });
+setInterval(async () => {
+  const transfers = await scrapeOfficialTransfers();
 
-    if (interaction.commandName === "rumours")
-        return interaction.reply({ embeds: [embedRumours(await getRumours())] });
+  if (transfers.length === 0) return;
+
+  const embed = new EmbedBuilder()
+    .setColor("Green")
+    .setTitle("📢 NEW Official Transfer Detected!")
+    .setDescription(transfers.map((t) => `• ${t}`).join("\n"))
+    .setTimestamp();
+
+  const channel = client.channels.cache.get(CHANNEL_ID);
+  if (channel) channel.send({ embeds: [embed] });
+}, 10 * 60 * 1000); // 10 минути
+
+// -------------------------------------------------------
+
+client.once("ready", async () => {
+  console.log(`Logged in as ${client.user.tag}`);
+  await register();
 });
 
-// ------------------------------------------------------
-// LOGIN
-// ------------------------------------------------------
 client.login(TOKEN);
 
