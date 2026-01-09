@@ -1,9 +1,10 @@
 import express from "express";
 import { Client, GatewayIntentBits, REST, Routes, EmbedBuilder } from "discord.js";
 import fetch from "node-fetch";
+import * as cheerio from "cheerio";
 
 // ------------------------------------------------------
-// EXPRESS WEB SERVER (НЕ ПИПАЙ) – НУЖНО Е ЗА RENDER
+// EXPRESS WEB SERVER (НЕ ПИПАЙ) – нужно за Render
 // ------------------------------------------------------
 const app = express();
 app.get("/", (req, res) => res.send("Irfizio bot is running"));
@@ -37,7 +38,7 @@ let lastTransfers = [];
 const commands = [
     {
         name: "transfers",
-        description: "Shows latest official transfer news from Fabrizio Romano"
+        description: "Shows latest official transfer news"
     }
 ];
 
@@ -53,62 +54,58 @@ async function registerCommands() {
 
 
 // ------------------------------------------------------
-// FETCH FABRIZIO ROMANO OFFICIAL TRANSFERS
+// SCRAPE FOOTBALLTRANSFERS.COM (работи стабилно)
 // ------------------------------------------------------
 async function getOfficialTransfers() {
-    const url = "https://api.twii.dev/user/fabrizioromano/tweets";
+    const url = "https://www.footballtransfers.com/en/transfers";
 
     const res = await fetch(url, {
-        headers: {
-            "User-Agent": "Mozilla/5.0",
-            "Accept": "application/json"
-        }
+        headers: { "User-Agent": "Mozilla/5.0" }
     });
 
-    const data = await res.json();
-    const tweets = data.tweets || [];
+    const html = await res.text();
+    const $ = cheerio.load(html);
 
-    const keywords = [
-        "here we go",
-        "official",
-        "confirmed",
-        "deal",
-        "joins",
-        "signs",
-        "completed"
-    ];
+    const results = [];
 
-    const filtered = tweets.filter(t =>
-        keywords.some(k => t.text.toLowerCase().includes(k))
-    );
+    $(".latest-transfers table tbody tr").each((i, el) => {
+        const player = $(el).find(".player-name").text().trim();
+        const to = $(el).find(".team.to").text().trim();
+        const fee = $(el).find(".fee").text().trim();
 
-    const cleaned = filtered.slice(0, 10).map(t => ({
-        text: t.text.replace(/\n/g, " ").trim(),
-        url: `https://twitter.com/FabrizioRomano/status/${t.id}`
-    }));
+        if (!player) return;
 
-    return cleaned;
+        results.push({
+            text: `${player} to ${to} (${fee || "free"})`
+        });
+    });
+
+    return results.slice(0, 10);
 }
 
 
 // ------------------------------------------------------
-// EMBED BUILDER
+// EMBED BUILDER – ULTRA CLEAN (D)
 // ------------------------------------------------------
 function makeEmbed(transfers) {
     const embed = new EmbedBuilder()
         .setColor("#00FFFF")
-        .setTitle("📢 Irfizio – Latest Transfer News (Fabrizio Romano)")
+        .setTitle("📢 Latest Transfer News")
         .setTimestamp();
 
     if (transfers.length === 0) {
-        embed.addFields({ name: "No official transfers", value: "Check again later." });
+        embed.addFields({
+            name: "No transfers found",
+            value: "Try again later.",
+            inline: false
+        });
         return embed;
     }
 
     transfers.forEach(t => {
         embed.addFields({
             name: " ",
-            value: `• ${t.text}\n[🔗 Tweet](${t.url})`,
+            value: `• ${t.text}`,
             inline: false
         });
     });
@@ -159,6 +156,7 @@ client.on("interactionCreate", async interaction => {
 // BOT LOGIN
 // ------------------------------------------------------
 client.login(TOKEN);
+
 
 
 
