@@ -1,24 +1,43 @@
+import express from "express";
 import { Client, GatewayIntentBits, REST, Routes, EmbedBuilder } from "discord.js";
 import fetch from "node-fetch";
 
-// ---------------------------------------
-// CONFIG (без токен в кода!)
-const TOKEN = process.env.TOKEN;          // токенът идва от Render
-const GUILD_ID = process.env.GUILD_ID;    // ще го добавиш в Render
-const CHANNEL_ID = process.env.CHANNEL_ID; // ще го добавиш в Render
-// ---------------------------------------
+// ------------------------------------------------------
+// EXPRESS WEB SERVER (НЕ ПИПАЙ) – НУЖНО Е ЗА RENDER
+// ------------------------------------------------------
+const app = express();
+app.get("/", (req, res) => res.send("Irfizio bot is running"));
+app.listen(3000, () => console.log("Web server running on port 3000"));
 
+
+// ------------------------------------------------------
+// ENV VARIABLES (Render ги чете автоматично)
+// ------------------------------------------------------
+const TOKEN = process.env.TOKEN;
+const GUILD_ID = process.env.GUILD_ID;
+const CHANNEL_ID = process.env.CHANNEL_ID;
+
+
+// ------------------------------------------------------
+// DISCORD CLIENT
+// ------------------------------------------------------
 const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages
+    ]
 });
 
 let lastTransfers = [];
 
-// ------------- REGISTER SLASH COMMAND -------------
+
+// ------------------------------------------------------
+// SLASH COMMANDS
+// ------------------------------------------------------
 const commands = [
     {
         name: "transfers",
-        description: "Показва последните официални футболни трансфери"
+        description: "Shows latest official transfer news from Fabrizio Romano"
     }
 ];
 
@@ -26,13 +45,16 @@ const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 async function registerCommands() {
     await rest.put(
-        Routes.applicationGuildCommands((await client.application)?.id, GUILD_ID),
+        Routes.applicationGuildCommands(client.user.id, GUILD_ID),
         { body: commands }
     );
-    console.log("Slash командите са регистрирани.");
+    console.log("Slash commands registered.");
 }
 
-// ------------- FETCH OFFICIAL TRANSFERS -------------
+
+// ------------------------------------------------------
+// FETCH FABRIZIO ROMANO OFFICIAL TRANSFERS
+// ------------------------------------------------------
 async function getOfficialTransfers() {
     const url = "https://api.twii.dev/user/fabrizioromano/tweets";
 
@@ -44,20 +66,19 @@ async function getOfficialTransfers() {
     });
 
     const data = await res.json();
-    
     const tweets = data.tweets || [];
 
     const keywords = [
-        "here we go", 
-        "official", 
-        "confirmed", 
-        "deal", 
-        "joins", 
-        "signs", 
+        "here we go",
+        "official",
+        "confirmed",
+        "deal",
+        "joins",
+        "signs",
         "completed"
     ];
 
-    const filtered = tweets.filter(t => 
+    const filtered = tweets.filter(t =>
         keywords.some(k => t.text.toLowerCase().includes(k))
     );
 
@@ -70,27 +91,24 @@ async function getOfficialTransfers() {
 }
 
 
-
-// ------------- SIMPLE EMBED -------------
+// ------------------------------------------------------
+// EMBED BUILDER
+// ------------------------------------------------------
 function makeEmbed(transfers) {
     const embed = new EmbedBuilder()
         .setColor("#00FFFF")
-        .setTitle("📢 HERE WE GO!")
+        .setTitle("📢 Irfizio – Latest Transfer News (Fabrizio Romano)")
         .setTimestamp();
 
     if (transfers.length === 0) {
-        embed.addFields({
-            name: "No official transfers yet",
-            value: "Try again later.",
-            inline: false
-        });
+        embed.addFields({ name: "No official transfers", value: "Check again later." });
         return embed;
     }
 
     transfers.forEach(t => {
         embed.addFields({
             name: " ",
-            value: `• ${t.text}\n[🔗 View Tweet](${t.url})`,
+            value: `• ${t.text}\n[🔗 Tweet](${t.url})`,
             inline: false
         });
     });
@@ -99,18 +117,16 @@ function makeEmbed(transfers) {
 }
 
 
-
-
-// ------------- AUTO CHECK EVERY 10 MIN -------------
+// ------------------------------------------------------
+// AUTO CHECK EVERY 10 MIN
+// ------------------------------------------------------
 async function autoCheck() {
     try {
         const transfers = await getOfficialTransfers();
 
         if (JSON.stringify(transfers) !== JSON.stringify(lastTransfers)) {
-            const channel = client.channels.cache.get(CHANNEL_ID);
-            if (channel) {
-                await channel.send({ embeds: [makeEmbed(transfers)] });
-            }
+            const ch = client.channels.cache.get(CHANNEL_ID);
+            if (ch) ch.send({ embeds: [makeEmbed(transfers)] });
             lastTransfers = transfers;
         }
     } catch (err) {
@@ -118,27 +134,30 @@ async function autoCheck() {
     }
 }
 
-// ------------- BOT READY -------------
-client.on("ready", async () => {
-    console.log(`Логнат като ${client.user.tag}`);
 
+// ------------------------------------------------------
+// DISCORD EVENTS
+// ------------------------------------------------------
+client.on("ready", async () => {
+    console.log(`Logged in as ${client.user.tag}`);
     await registerCommands();
 
     autoCheck();
-    setInterval(autoCheck, 10 * 60 * 1000); // 10 мин
+    setInterval(autoCheck, 10 * 60 * 1000);
 });
 
-// ------------- HANDLE COMMANDS -------------
 client.on("interactionCreate", async interaction => {
     if (!interaction.isChatInputCommand()) return;
-
     if (interaction.commandName === "transfers") {
         const transfers = await getOfficialTransfers();
         await interaction.reply({ embeds: [makeEmbed(transfers)] });
     }
 });
 
-// ------------- LOGIN -------------
+
+// ------------------------------------------------------
+// BOT LOGIN
+// ------------------------------------------------------
 client.login(TOKEN);
 
 
