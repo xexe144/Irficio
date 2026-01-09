@@ -34,34 +34,36 @@ async function registerCommands() {
 
 // ------------- FETCH OFFICIAL TRANSFERS -------------
 async function getOfficialTransfers() {
-    const url = "https://rsshub.app/twitter/user/FabrizioRomano";
+    const url = "https://api.twii.dev/user/fabrizioromano/tweets";
 
     const res = await fetch(url, {
         headers: {
-            "User-Agent": "Mozilla/5.0"
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "application/json"
         }
     });
 
     const data = await res.json();
+    
+    const tweets = data.tweets || [];
 
-    const tweets = data.items || [];
+    const keywords = [
+        "here we go", 
+        "official", 
+        "confirmed", 
+        "deal", 
+        "joins", 
+        "signs", 
+        "completed"
+    ];
 
-    // Filter ONLY official transfers
-    const officialTweets = tweets.filter(t =>
-        t.title.includes("Here we go") ||
-        t.title.includes("Official") ||
-        t.title.includes("confirmed") ||
-        t.title.includes("Completed") ||
-        t.title.includes("Deal") ||
-        t.title.includes("joins") ||
-        t.title.includes("signs")
+    const filtered = tweets.filter(t => 
+        keywords.some(k => t.text.toLowerCase().includes(k))
     );
 
-    // Clean text
-    const cleaned = officialTweets.slice(0, 10).map(t => ({
-        player: t.title.replace(/<[^>]+>/g, "").trim(),
-        to: "",
-        fee: ""
+    const cleaned = filtered.slice(0, 10).map(t => ({
+        text: t.text.replace(/\n/g, " ").trim(),
+        url: `https://twitter.com/FabrizioRomano/status/${t.id}`
     }));
 
     return cleaned;
@@ -73,7 +75,7 @@ async function getOfficialTransfers() {
 function makeEmbed(transfers) {
     const embed = new EmbedBuilder()
         .setColor("#00FFFF")
-        .setTitle("📢 HERE WE GO!:")
+        .setTitle("📢 HERE WE GO!")
         .setTimestamp();
 
     if (transfers.length === 0) {
@@ -88,13 +90,14 @@ function makeEmbed(transfers) {
     transfers.forEach(t => {
         embed.addFields({
             name: " ",
-            value: `• ${t.player}`,
+            value: `• ${t.text}\n[🔗 View Tweet](${t.url})`,
             inline: false
         });
     });
 
     return embed;
 }
+
 
 
 
@@ -137,6 +140,7 @@ client.on("interactionCreate", async interaction => {
 
 // ------------- LOGIN -------------
 client.login(TOKEN);
+
 
 
 
