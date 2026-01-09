@@ -1,18 +1,19 @@
+
 import express from "express";
 import { Client, GatewayIntentBits, REST, Routes, EmbedBuilder } from "discord.js";
 import fetch from "node-fetch";
 import * as cheerio from "cheerio";
 
 // ------------------------------------------------------
-// EXPRESS WEB SERVER (НЕ ПИПАЙ) – нужно за Render
+// EXPRESS WEB SERVER (нужно за Render)
 // ------------------------------------------------------
 const app = express();
-app.get("/", (req, res) => res.send("Irfizio bot is running"));
-app.listen(3000, () => console.log("Web server running on port 3000"));
+app.get("/", (req, res) => res.send("Irfizio bot running"));
+app.listen(3000, () => console.log("Web server running on 3000"));
 
 
 // ------------------------------------------------------
-// ENV VARIABLES (Render ги чете автоматично)
+// ENV VARIABLES (Render ги чете)
 // ------------------------------------------------------
 const TOKEN = process.env.TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
@@ -38,7 +39,7 @@ let lastTransfers = [];
 const commands = [
     {
         name: "transfers",
-        description: "Shows latest official transfer news"
+        description: "Shows latest transfer news from top leagues"
     }
 ];
 
@@ -54,10 +55,52 @@ async function registerCommands() {
 
 
 // ------------------------------------------------------
-// SCRAPE FOOTBALLTRANSFERS.COM (работи стабилно)
+// FULL LEAGUE FILTER LISTS
+// ------------------------------------------------------
+
+const premierLeague = [
+    "Arsenal","Aston Villa","Bournemouth","Brentford","Brighton",
+    "Chelsea","Crystal Palace","Everton","Fulham","Liverpool",
+    "Luton","Manchester City","Man City","Manchester United","Man United",
+    "Newcastle","Nottingham Forest","Sheffield United","Tottenham","Spurs",
+    "West Ham","Wolves","Wolverhampton"
+];
+
+const laLiga = [
+    "Alaves","Athletic Club","Atletico Madrid","Atleti","Barcelona","Barça",
+    "Cadiz","Celta Vigo","Getafe","Girona","Granada","Las Palmas",
+    "Mallorca","Osasuna","Rayo Vallecano","Real Betis","Real Madrid",
+    "Real Sociedad","Sevilla","Valencia","Villarreal"
+];
+
+const serieA = [
+    "Atalanta","Bologna","Cagliari","Empoli","Fiorentina","Frosinone",
+    "Genoa","Inter","Juventus","Juve","Lazio","Lecce","Milan","AC Milan",
+    "Monza","Napoli","Roma","Salernitana","Sassuolo","Torino",
+    "Udinese","Verona"
+];
+
+const bundesliga = [
+    "Augsburg","Bayer Leverkusen","Leverkusen","Bayern Munich","Bayern",
+    "Bochum","Borussia Dortmund","Dortmund","Borussia Monchengladbach","Gladbach",
+    "Eintracht Frankfurt","Freiburg","Heidenheim","Hoffenheim",
+    "Mainz","RB Leipzig","Union Berlin","Stuttgart",
+    "Werder Bremen","Wolfsburg"
+];
+
+const bigLeaguesClubs = [
+    ...premierLeague,
+    ...laLiga,
+    ...serieA,
+    ...bundesliga
+];
+
+
+// ------------------------------------------------------
+// SCRAPING GOAL.COM (стабилно)
 // ------------------------------------------------------
 async function getOfficialTransfers() {
-    const url = "https://www.footballtransfers.com/en/transfers";
+    const url = "https://www.goal.com/en/transfer-news";
 
     const res = await fetch(url, {
         headers: { "User-Agent": "Mozilla/5.0" }
@@ -68,16 +111,20 @@ async function getOfficialTransfers() {
 
     const results = [];
 
-    $(".latest-transfers table tbody tr").each((i, el) => {
-        const player = $(el).find(".player-name").text().trim();
-        const to = $(el).find(".team.to").text().trim();
-        const fee = $(el).find(".fee").text().trim();
+    $(".type-article .title").each((i, el) => {
+        let title = $(el).text().trim();
+        if (!title) return;
 
-        if (!player) return;
+        // official words only
+        const goodWords = ["official", "confirmed", "deal", "joins", "signs"];
+        if (!goodWords.some(w => title.toLowerCase().includes(w))) return;
 
-        results.push({
-            text: `${player} to ${to} (${fee || "free"})`
-        });
+        // filter by league clubs
+        if (!bigLeaguesClubs.some(club =>
+            title.toLowerCase().includes(club.toLowerCase())
+        )) return;
+
+        results.push({ text: title });
     });
 
     return results.slice(0, 10);
@@ -85,12 +132,12 @@ async function getOfficialTransfers() {
 
 
 // ------------------------------------------------------
-// EMBED BUILDER – ULTRA CLEAN (D)
+// EMBED BUILDER (ULTRA CLEAN STYLE)
 // ------------------------------------------------------
 function makeEmbed(transfers) {
     const embed = new EmbedBuilder()
         .setColor("#00FFFF")
-        .setTitle("📢 Latest Transfer News")
+        .setTitle("📢 Latest Transfer News (Top 4 Leagues)")
         .setTimestamp();
 
     if (transfers.length === 0) {
@@ -153,11 +200,9 @@ client.on("interactionCreate", async interaction => {
 
 
 // ------------------------------------------------------
-// BOT LOGIN
+// LOGIN
 // ------------------------------------------------------
 client.login(TOKEN);
-
-
 
 
 
