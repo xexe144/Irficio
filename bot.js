@@ -4,7 +4,7 @@ import fetch from "node-fetch";
 import * as cheerio from "cheerio";
 
 // ------------------------------------------------------
-// EXPRESS SERVER
+// EXPRESS SERVER (Render keep-alive)
 // ------------------------------------------------------
 const app = express();
 app.get("/", (req, res) => res.send("Irfizio bot online"));
@@ -25,10 +25,10 @@ const client = new Client({
 });
 
 // ------------------------------------------------------
-// LEAGUE CLUB LISTS (FULL)
+// ALL CLUB LISTS
 // ------------------------------------------------------
 
-// Premier League (20)
+// Premier League
 const premierLeague = [
     "Arsenal","Aston Villa","Bournemouth","Brentford","Brighton",
     "Chelsea","Crystal Palace","Everton","Fulham","Liverpool",
@@ -37,7 +37,7 @@ const premierLeague = [
     "West Ham","Wolves","Wolverhampton"
 ];
 
-// La Liga (20)
+// La Liga
 const laLiga = [
     "Alaves","Athletic Club","Atletico Madrid","Atleti","Barcelona","Barça",
     "Cadiz","Celta Vigo","Getafe","Girona","Granada","Las Palmas",
@@ -45,128 +45,126 @@ const laLiga = [
     "Real Sociedad","Sevilla","Valencia","Villarreal"
 ];
 
-// Ligue 1 (3 selected)
+// Ligue 1 (selected only)
 const ligue1 = [
     "Paris Saint-Germain","PSG","Lyon","Marseille"
 ];
 
-// Bundesliga (4 selected)
+// Bundesliga (selected only)
 const bundesliga = [
-    "Bayern Munich","Bayern",
-    "Bayer Leverkusen","Leverkusen",
-    "Borussia Dortmund","Dortmund",
-    "Eintracht Frankfurt"
+    "Bayern Munich","Bayern","Bayer Leverkusen","Leverkusen",
+    "Borussia Dortmund","Dortmund","Eintracht Frankfurt"
 ];
 
-// Serie A (5 selected)
+// Serie A (selected only)
 const serieA = [
     "Inter","Internazionale",
     "Juventus","Juve",
     "Milan","AC Milan",
-    "Napoli",
-    "Roma"
+    "Napoli","Roma"
 ];
 
-// For /transfers command → all 6 leagues
+// ALL clubs for /transfers and /rumours
 const allClubs = [
     ...premierLeague,
     ...laLiga,
-    ...[
-        "Paris Saint-Germain","PSG","Lyon","Marseille"
-    ],
-    ...[
-        "Bayern Munich","Bayern","Bayer Leverkusen","Leverkusen",
-        "Borussia Dortmund","Dortmund","Eintracht Frankfurt"
-    ],
-    ...[
-        "Inter","Internazionale","Juventus","Juve",
-        "Milan","AC Milan","Napoli","Roma"
-    ]
+    ...ligue1,
+    ...bundesliga,
+    ...serieA
 ];
 
-// For AUTO-CHECK → same list (only official)
+// AUTO POST CLUBS (same as above)
 const autoClubs = allClubs;
 
 // ------------------------------------------------------
-// SLASH COMMANDS
+// COMMANDS
 // ------------------------------------------------------
 const commands = [
     { name: "transfers", description: "Official transfers from top leagues" },
-    { name: "rumours", description: "Rumours from top leagues" }
+    { name: "rumours", description: "Rumours (text formats only) from GOAL" }
 ];
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
-// ------------------------------------------------------
-// REGISTER COMMANDS
-// ------------------------------------------------------
+// Register commands
 async function registerCommands() {
     await rest.put(
-        Routes.applicationGuildCommands(client.user.id, GUILD_ID),
+        Routes.applicationGuildCommands(client.user?.id, GUILD_ID),
         { body: commands }
     );
     console.log("Slash commands registered.");
 }
 
 // ------------------------------------------------------
-// SCRAPING GOAL.COM
+// LOAD GOAL HTML
 // ------------------------------------------------------
 async function loadGoal() {
     const res = await fetch("https://www.goal.com/en/transfer-news", {
         headers: { "User-Agent": "Mozilla/5.0" }
     });
-    const html = await res.text();
-    return cheerio.load(html);
+    return cheerio.load(await res.text());
 }
 
 // ------------------------------------------------------
-// OFFICIAL TRANSFERS
+// GET ALL TEXT HEADLINES (NO VIDEO)
 // ------------------------------------------------------
-async function getOfficialTransfers() {
-    const $ = await loadGoal();
-
-    const officialWords = ["official", "confirmed", "deal", "joins", "signs"];
-
-    const results = [];
-
-    $(".type-article .title").each((i, el) => {
-        const t = $(el).text().trim();
-        if (!t) return;
-
-        if (!officialWords.some(w => t.toLowerCase().includes(w))) return;
-        if (!allClubs.some(c => t.toLowerCase().includes(c.toLowerCase()))) return;
-
-        results.push({ text: t });
-    });
-
-    return results.slice(0, 20);
-}
-
-// ------------------------------------------------------
-// RUMOURS
-// ------------------------------------------------------
-async function getRumours() {
-    const $ = await loadGoal();
-
-    const rumourWords = [
-        "linked","target","interest","interested",
-        "monitoring","eyeing","approach","offer",
-        "bid","could","move"
+function extractTextHeadlines($) {
+    const selectors = [
+        ".type-article .title",
+        ".type-list .title",
+        ".type-story .title",
+        ".type-analysis .title",
+        ".type-gallery .title",
+        ".type-tags .title"
+        // --- type-video intentionally excluded ---
     ];
 
     const results = [];
 
-    $(".type-article .title").each((i, el) => {
-        const t = $(el).text().trim();
-        if (!t) return;
-
-        if (!rumourWords.some(w => t.toLowerCase().includes(w))) return;
-        if (!allClubs.some(c => t.toLowerCase().includes(c.toLowerCase()))) return;
-
-        results.push({ text: t });
+    selectors.forEach(sel => {
+        $(sel).each((i, el) => {
+            const t = $(el).text().trim();
+            if (t) results.push(t);
+        });
     });
 
-    return results.slice(0, 20);
+    return results;
+}
+
+// ------------------------------------------------------
+// GET OFFICIAL TRANSFERS
+// ------------------------------------------------------
+async function getOfficialTransfers() {
+    const $ = await loadGoal();
+    const titles = extractTextHeadlines($);
+
+    const officialWords = ["official", "confirmed", "deal", "joins", "signs"];
+
+    return titles
+        .filter(t => officialWords.some(w => t.toLowerCase().includes(w)))
+        .filter(t => allClubs.some(c => t.toLowerCase().includes(c.toLowerCase())))
+        .slice(0, 20)
+        .map(t => ({ text: t }));
+}
+
+// ------------------------------------------------------
+// GET RUMOURS (TEXT FORMATS ONLY)
+// ------------------------------------------------------
+async function getRumours() {
+    const $ = await loadGoal();
+    const titles = extractTextHeadlines($);
+
+    const rumourWords = [
+        "linked","target","interest","interested",
+        "monitoring","eyeing","approach","offer","bid",
+        "could","move"
+    ];
+
+    return titles
+        .filter(t => rumourWords.some(w => t.toLowerCase().includes(w)))
+        .filter(t => allClubs.some(c => t.toLowerCase().includes(c.toLowerCase())))
+        .slice(0, 20)
+        .map(t => ({ text: t }));
 }
 
 // ------------------------------------------------------
@@ -201,26 +199,21 @@ function embedRumours(list) {
 }
 
 // ------------------------------------------------------
-// AUTO CHECK — ONLY OFFICIAL — ONLY SELECTED CLUBS
+// AUTO CHECK — ONLY OFFICIAL, ONLY SELECTED CLUBS
 // ------------------------------------------------------
 let lastAuto = [];
 
 async function autoCheck() {
     try {
         const $ = await loadGoal();
+        const titles = extractTextHeadlines($);
 
         const officialWords = ["official", "confirmed", "deal", "joins", "signs"];
-        const newResults = [];
 
-        $(".type-article .title").each((i, el) => {
-            const t = $(el).text().trim();
-            if (!t) return;
-
-            if (!officialWords.some(w => t.toLowerCase().includes(w))) return;
-            if (!autoClubs.some(c => t.toLowerCase().includes(c.toLowerCase()))) return;
-
-            newResults.push({ text: t });
-        });
+        const newResults = titles
+            .filter(t => officialWords.some(w => t.toLowerCase().includes(w)))
+            .filter(t => autoClubs.some(c => t.toLowerCase().includes(c.toLowerCase())))
+            .map(t => ({ text: t }));
 
         if (JSON.stringify(newResults) !== JSON.stringify(lastAuto)) {
             const ch = client.channels.cache.get(CHANNEL_ID);
@@ -231,7 +224,6 @@ async function autoCheck() {
 
             lastAuto = newResults;
         }
-
     } catch (err) {
         console.log("Auto-check error:", err);
     }
@@ -262,3 +254,4 @@ client.on("interactionCreate", async interaction => {
 // LOGIN
 // ------------------------------------------------------
 client.login(TOKEN);
+
